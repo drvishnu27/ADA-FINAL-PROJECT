@@ -1,0 +1,450 @@
+---
+title: "Untitled"
+author: "Shri"
+date: "2024-12-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Title: Logistic Regression Analysis
+### Objective: To assess the relationship between BMI category and Coronary Heart Disease (CHD), adjusting for other covariates such as age, gender, income level, and race.
+
+# Install Necessary Libraries
+```{r}
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("VIM", quietly = TRUE)) install.packages("VIM")
+if (!requireNamespace("jtools", quietly = TRUE)) install.packages("jtools")
+if (!requireNamespace("car", quietly = TRUE)) install.packages("car")
+if (!requireNamespace("table1", quietly = TRUE)) install.packages("table1")
+if (!requireNamespace("GGally", quietly = TRUE)) install.packages("GGally")
+if (!requireNamespace("gridExtra", quietly = TRUE)) install.packages("gridExtra")
+if (!requireNamespace("patchwork", quietly = TRUE)) install.packages("patchwork")
+if (!requireNamespace("rsvg", quietly = TRUE)) install.packages("rsvg")
+```
+
+# Load Necessary Libraries
+```{r}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(table1)
+library(car)    # For VIF
+library(patchwork) # For enhanced plot layouts
+```
+
+# Step 1: Load and Prepare Data
+```{r}
+rss1_puf_t1 <- read.csv("C:/Users/Vishnuvardhan T/OneDrive - Washington University in St. Louis/MPH canvas/3rd SEM/5. ADA/Final project/rss1_puf_t1.csv")
+
+# Select relevant columns
+Data_new <- rss1_puf_t1 %>% 
+  dplyr::select(P_AGEC_R, P_GENDER, P_INCOME_R, P_RACE_R, CHR_CHDEV, BMICAT)
+
+# Rename columns for clarity
+names(Data_new) <- c("Age", "Gender", "Income level", "Race", "Coronary Heart Disease", "BMI Category")
+
+# Explore data structure
+head(Data_new)
+summary(Data_new)
+nrow(Data_new)
+
+#Total observations are n=7599
+```
+
+```{r}
+#Checking unique values
+sapply(Data_new, unique)
+```
+
+
+# Step 2: Data Cleaning
+```{r}
+# Identify and handle invalid/missing values
+# Remove invalid values (-9 and -6) from Coronary Heart Disease
+
+Data_filtered1 <- Data_new %>%
+  filter(`Coronary Heart Disease` %in% c(0, 1))
+
+# Confirm remaining rows
+nrow(Data_filtered1)
+#New observations are 7569
+```
+
+```{r}
+#Filtering the BMI Category for invalid responses
+Data_filtered2 <- Data_filtered1 %>%
+  filter(`BMI Category` != 9)
+# Confirm remaining rows
+nrow(Data_filtered2)
+#New observations are 7434
+```
+```{r}
+#Reconfirming once again for the missing values using 'colsums' function
+missing_values <- colSums(is.na(Data_filtered2))
+print(missing_values)
+#Confirming that Missing values for Race is 72
+```
+
+```{r}
+#Removing missing values on Race
+Data_filtered3 <- Data_filtered2 %>% filter(!is.na(Race))
+num_rows <- nrow(Data_filtered3)
+print(num_rows)
+#New total observations are 7362
+```
+
+
+```{r}
+#Making note of number of observations
+figure1 <-grViz(diagram = "digraph flowchart{ # gives beginning of flowchart
+
+      # node definitions with substituted label text
+      
+      node [fontname = Helvetica, shape = rectangle, fontsize=10] 
+      
+      # Define the nodes: nodes indicate how many boxes you will have in your diagram. Since I have 4 sets of exclusions, I will have four nodes.
+      
+      node1 [label = '@@1'] # starting number
+      node2 [label = '@@2'] # number after exclusion 1
+      node3 [label = '@@3'] # number after exclusion 2
+      node4 [label = '@@4'] # number after exclusion 3
+      
+      
+      # edge definitions with the node IDs are used to indicate how the rectangle boxes flow from each other. 
+      
+      node1 -> node2 -> node3 -> node4
+}
+      # This set of code provides the text in each rectangle box.
+      [1]: 'Total number of individuals interviewed from the NCHS Rapid Survey System Round 1 n = 7599'
+      [2]: 'Excluding 30 individuals with invalid response on Coronary Heart Disease n = 7569'
+      [3]: 'Excluding 135 individuals with invalid response on BMI Category n = 7434'
+[4]: 'Excluding  72 individuals with missing values on Race n = 7362'      ")
+figure1
+```
+```{r}
+#Exporting the above flowchart
+figure1 %>%
+  DiagrammeRsvg::export_svg() %>% 
+  charToRaw() %>% 
+  rsvg::rsvg_pdf("Figure 1.pdf")
+
+```
+
+
+
+# Step 3: Data Recoding
+```{r}
+# Recode variables for analysis
+Data_cat <- Data_filtered3 %>%
+  mutate(
+    `Income level` = case_when(
+      `Income level` %in% c(1, 2, 3, 4, 5, 6, 7) ~ "Low",        # <$35,000
+      `Income level` %in% c(8, 9, 10, 11, 12) ~ "Middle",         # $35,000 to <$85,000
+      `Income level` %in% c(13, 14, 15, 16) ~ "High",             # >$85,000
+      TRUE ~ NA_character_
+    ),
+    Age = case_when(
+      Age >= 18 & Age < 40 ~ "Young",        # 18-39
+      Age >= 40 & Age < 60 ~ "Middle-aged",  # 40-59
+      Age >= 60 ~ "Older",                   # 60+
+      TRUE ~ NA_character_
+    ),
+    Race = case_when(
+      Race == 1 ~ "White, non-Hispanic",
+      Race == 2 ~ "Black, non-Hispanic",
+      Race == 3 ~ "Other, non-Hispanic",
+      Race == 4 ~ "Hispanic",
+      TRUE ~ "Unknown"
+    ),
+    `BMI Category` = case_when(
+      `BMI Category` == 1 ~ "Underweight",
+      `BMI Category` == 2 ~ "Healthy weight",
+      `BMI Category` == 3 ~ "Overweight",
+      `BMI Category` == 4 ~ "Obese",
+      TRUE ~ "Unknown"
+    ),
+     `Gender` = case_when(
+      `Gender` == 1 ~ "Male",
+      `Gender` == 2~ "Female"
+    ),
+    `Coronary Heart Disease` = case_when(
+      `Coronary Heart Disease` == 0 ~ "No",
+      `Coronary Heart Disease` == 1 ~ "Yes"
+    )
+  ) %>%
+  mutate(
+    `Coronary Heart Disease` = as.factor(`Coronary Heart Disease`),
+    Age = as.factor(Age),
+    Gender = as.factor(Gender),
+    `Income level` = as.factor(`Income level`),
+    Race = as.factor(Race),
+    `BMI Category` = factor(`BMI Category`, levels = c("Healthy weight", "Underweight", "Overweight", "Obese"), ordered = TRUE)
+  ) %>%
+  na.omit()
+
+# Check structure
+str(Data_cat)
+```
+
+# Step 4: Table 1 (Descriptive Statistics)
+```{r}
+table1(~ Age + Gender + Race + `BMI Category` + `Income level` | `Coronary Heart Disease`, data = Data_cat)
+```
+
+# Step 5: Assumption Testing
+
+```{r}
+# Multicollinearity Check
+model_assumption <- glm(`Coronary Heart Disease` ~ Age + Gender + `Income level` + Race + `BMI Category`, 
+                        data = Data_cat, family = "binomial")
+vif_values <- vif(model_assumption)
+print(vif_values)
+```
+
+
+# Step 6: Looking for outliers
+
+```{r}
+plot(model_assumption, which = 4, id.n = 3, col="red") # which = 4 gives Cook's distance calculations (see https://stat.ethz.ch/R-manual/R-patched/library/stats/html/plot.lm.html)
+abline(h=1, col="red", lty=2)  # Add a threshold line
+```
+
+```{r}
+cooks_d <- cooks.distance(model_assumption)
+#Check for non-outliers
+non_outliers <- Data_cat[cooks_d <= 1, ]  # Using the threshold of 1
+num_rows <- nrow(non_outliers)
+print(num_rows)
+
+#There are no outliers
+```
+
+
+
+# Step 6: Binary logistic regression
+
+```{r}
+#UNADJUSTED, UNIVARIATE LOGISTIC MODEL (MODEL1)
+#AND Interpreting the log odds and the OR.
+
+# Fit the univariable logistic regression model
+model1 <- glm(`Coronary Heart Disease` ~ (`BMI Category`), data = Data_cat, family = "binomial")
+
+# Summarize the model results
+summary(model1)
+
+exp(model1$coefficients) # get ORs and CIs
+exp(confint(model1))
+
+odds.n.ends(model1) # get OR results (and more!) 
+```
+
+```{r}
+#Adding Age to the model
+model2 <- glm(`Coronary Heart Disease` ~  `BMI Category` + Age, data=Data_cat, family="binomial")
+odds.n.ends(model2)
+
+# compare coefficients between models 1 and 2
+compareCoefs(model1, model2)
+```
+
+
+
+
+```{r}
+#Incorporating all the variables in the formula
+# Binary logistic regression 
+model <- glm(`Coronary Heart Disease` ~ `BMI Category` + Age + Gender + Race + `Income level`, data = Data_cat, family = "binomial")
+summary(model)
+
+# Odds Ratios and Confidence Intervals
+odds_ratios <- exp(cbind(OR = coef(model), confint(model)))
+
+# Extract P-values
+p_values <- summary(model)$coefficients[, 4]
+
+# Assign significance stars
+significance <- ifelse(p_values < 0.001, "***",
+                 ifelse(p_values < 0.01, "**",
+                 ifelse(p_values < 0.05, "*", "")))
+
+# Create a Well-Formatted Table 2
+Table2 <- data.frame(
+  Variable = rownames(odds_ratios),
+  Odds_Ratio = round(odds_ratios[, "OR"], 2),
+  Lower_CI = round(odds_ratios[, 2], 2),
+  Upper_CI = round(odds_ratios[, 3], 2),
+  P_Value = round(p_values, 3),
+  Significance = significance
+)
+rownames(Table2) <- NULL
+
+# Print Table 2
+print(Table2)
+
+```
+
+
+# Step 7: #Data visualization
+```{r}
+# Load necessary library for forest plots
+if (!requireNamespace("ggplot2", quietly = TRUE)) install.packages("ggplot2")
+library(ggplot2)
+
+# Prepare data for forest plot
+Table2$Variable <- factor(Table2$Variable, levels = rev(Table2$Variable))  # Reverse order for better visualization
+forest_data <- Table2 %>%
+  filter(Variable != "(Intercept)")  # Remove intercept for cleaner visualization
+
+# Create forest plot
+forest_plot <- ggplot(forest_data, aes(x = Variable, y = Odds_Ratio)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2) +
+  coord_flip() +  # Flip coordinates for horizontal plot
+  labs(
+    title = "Forest Plot of Odds Ratios with 95% Confidence Intervals",
+    x = "Variables",
+    y = "Odds Ratio"
+  ) +
+  theme_minimal()
+forest_plot
+
+```
+
+
+
+```{r}
+# Proportion of CHD in each BMI category
+prop_plot <- ggplot(Data_cat, aes(x = `BMI Category`, fill = `Coronary Heart Disease`)) +
+  geom_bar(position = "fill") +
+  labs(
+    x = "BMI Category",
+    y = "Proportion",
+    fill = "CHD Status",
+    title = "Proportion of CHD Across BMI Categories"
+  ) +
+  theme_minimal()
+prop_plot
+
+```
+
+```{r}
+# Age distribution grouped by CHD status
+age_dist <- ggplot(Data_cat, aes(x = Age, fill = `Coronary Heart Disease`)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Age Distribution by CHD Status",
+    x = "Age Category",
+    y = "Count",
+    fill = "CHD Status"
+  ) +
+  theme_minimal()
+age_dist
+
+```
+
+```{r}
+# Income level visualization by CHD status
+income_chd <- ggplot(Data_cat, aes(x = `Income level`, fill = `Coronary Heart Disease`)) +
+  geom_bar(position = "dodge") +
+  labs(
+    title = "Income Level by CHD Status",
+    x = "Income Level",
+    y = "Count",
+    fill = "CHD Status"
+  ) +
+  theme_minimal()
+income_chd
+
+```
+
+```{r}
+# Race distribution by CHD
+race_chd <- ggplot(Data_cat, aes(x = Race, fill = `Coronary Heart Disease`)) +
+  geom_bar(position = "stack") +
+  labs(
+    title = "Race Distribution by CHD",
+    x = "Race",
+    y = "Count",
+    fill = "CHD Status"
+  ) +
+  theme_minimal()
+race_chd
+
+```
+
+```{r}
+## Let's see how well our model performs for classification and prediction.
+#MODEL1 (UNIVARIATE)
+odds.n.ends(model1, rocPlot = TRUE, predProbPlot = TRUE)
+```
+
+```{r}
+#MODEL2 (AGE included)
+odds.n.ends(model2, rocPlot = TRUE, predProbPlot = TRUE)
+
+```
+
+```{r}
+#MODEL (All variabbles included)
+odds.n.ends(model, rocPlot = TRUE, predProbPlot = TRUE)
+```
+
+# Step 8: Save Final Dataset
+```{r}
+write.csv(Data_cat, "C:/Users/Vishnuvardhan T/OneDrive - Washington University in St. Louis/MPH canvas/3rd SEM/5. ADA/Final project/Data_cat.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
